@@ -65,9 +65,57 @@ Evidence below consists of selected command-output excerpts from `session.log`; 
 - **Found/proved by:** Kaung Myat Tun (KingSton)
 
 ---
-## Fault 2
+## Fault 2 — Firewall blocked UDP DNS traffic
 
-(copy the block above for each additional fault)
+- **Symptom (what we observed):** After the zone-path repair, the checker still timed out when reaching DNS from the client. A UDP DNS query to the server timed out, although `named` was running and `lan0` had `192.168.19.10/24`.
+
+  ```text
+  $ python3 /root/grading/check_lab.py --group lab01 --phase build
+    [   0/2 ] C1   client cannot reach named at 192.168.19.10 (timeout/no status). Check listen-on, allow-query, firewall, and that it serves on lan0.
+
+  $ systemctl status named --no-pager
+       Active: active (running) since Tue 2026-10-27 11:09:20 UTC; 2min 36s ago
+
+  $ ip -4 addr show lan0
+      inet 192.168.19.10/24 scope global lan0
+
+  $ dig +notcp @192.168.19.10 ns1.novapeak.lab +time=2 +tries=1
+  ;; communications error to 192.168.19.10#53: timed out
+  ;; no servers could be reached
+  ```
+
+- **Hypothesis (what we suspected and why):** Since `named` was active and the server had the expected `lan0` address, a firewall rule might be dropping client DNS requests. I inspected the INPUT chain and repeated the query to see whether a DROP counter increased.
+
+- **Proof (the command that confirmed the cause):** Rule 1 dropped UDP destination port 53. Its packet counter increased from 7 to 8 after another DNS query.
+
+  ```text
+  $ iptables -L INPUT -n -v --line-numbers
+  Chain INPUT (policy ACCEPT 5230 packets, 394K bytes)
+  num   pkts bytes target     prot opt in     out     source               destination
+  1        7   602 DROP       17   --  *      *       0.0.0.0/0            0.0.0.0/0            udp dpt:53
+
+  $ iptables -L INPUT -n -v --line-numbers
+  Chain INPUT (policy ACCEPT 5609 packets, 419K bytes)
+  num   pkts bytes target     prot opt in     out     source               destination
+  1        8   687 DROP       17   --  *      *       0.0.0.0/0            0.0.0.0/0            udp dpt:53
+  ```
+
+- **Fix (what we changed):** Removed the blocking rule with `iptables -D INPUT 1`. The next INPUT-chain listing no longer showed the DROP rule.
+
+- **Confirmation (output showing it now works):** The INPUT chain no longer contained the DROP rule, and the checker could reach the authoritative DNS server from the client. The reverse lookup also passed without changing the reverse zone.
+
+  ```text
+  $ iptables -L INPUT -n -v --line-numbers
+  Chain INPUT (policy ACCEPT 6516 packets, 480K bytes)
+  num   pkts bytes target     prot opt in     out     source               destination
+
+  $ python3 /root/grading/check_lab.py --group lab01 --phase build
+    [   2/2 ] C1   named is authoritative for novapeak.lab and reachable from the client.
+    [   2/2 ] C3   reverse lookup of 192.168.19.10 returns ns1.
+    TOTAL: 18.25 / 25
+  ```
+
+- **Found/proved by:** Han Htoo Aung (Erics)
 --- 
 
 
