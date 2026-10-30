@@ -33,6 +33,6 @@ The `fixed-configs/` directory should contain:
 
 Run the checker and save its output in `checker_result.txt`:
 
-\`\`\`bash
+```bash
 python3 /root/grading/check_lab.py --group lab01 --phase build | tee checker_result.txt
-\`\`\`
+```
